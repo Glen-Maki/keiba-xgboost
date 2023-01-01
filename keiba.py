@@ -16,6 +16,8 @@ from sklearn.model_selection import RepeatedKFold
 from sklearn.model_selection import train_test_split
 import numpy as np
 import pandas as pd
+
+# Google driveにアクセスできるように
 from google.colab import drive
 drive.mount('/content/drive')
 
@@ -24,6 +26,7 @@ df_all = pd.read_csv(
     '/content/drive/MyDrive/keiba/***.csv', encoding="Shift-JIS")
 df_all.head()
 
+# データの確認
 print(list(df_all.columns.values))
 
 df = df_all[['性別', '年齢', '騎手名', '斤量', '馬番', '異常コード', '馬体重',
@@ -35,26 +38,26 @@ display(df.head())
 display(df.info())
 display(df.describe())
 
+# 異常コードが0ではないデータについては競走中止や競走除外なので該当データを削除する
 drop_index = df.index[(df['異常コード'] != 0) | (df['前走異常コード'] != 0)]
-# print(drop_index)
 df = df.drop(drop_index)
 
 display(df.describe())
 
+# 前走馬体重がないデータについては該当レース時の馬体重とする
 df.loc[df['前走馬体重'] == 0, '前走馬体重'] = df.loc[df['前走馬体重'] == 0, '馬体重']
 
+# 前走上がり3Fタイムや前走通過順1が0の場合はNaNとする
 for element in ['前走上がり3Fタイム', '前走通過順1', '前走通過順2', '前走通過順3', '前走通過順4']:
     df.loc[df[element] == 0, element] = np.NaN
 
-# 性別のone-hot
+# 性別のone-hot化
 one_hot_vector = pd.get_dummies(df[['性別']], drop_first=False)
 df = pd.concat([df, one_hot_vector], axis=1)
 
-# 性別のone-hot
+# 前走が芝かダートかの情報のone-hot化
 one_hot_vector = pd.get_dummies(df[['前走芝・ダ']], drop_first=False)
 df = pd.concat([df, one_hot_vector], axis=1)
-
-# 乗り替わり
 
 
 def categorize(x):
@@ -64,6 +67,7 @@ def categorize(x):
         return 1
 
 
+# 乗り替わりの有無をintにする
 df['乗り替わり'] = df.apply(categorize, axis=1)
 
 display(df.head())
@@ -71,6 +75,7 @@ display(df.describe())
 
 df = df.sample(frac=0.5, random_state=0).reset_index(drop=True)
 
+# 目的変数と説明変数に分け，train_test_splitで訓練用とテスト用に分割する
 y_data = df.loc[:, ['入線着順']]
 x_data = df.loc[:, ~df.columns.isin(
     ['入線着順', '騎手名', '前走騎手名', '異常コード', '前走異常コード', '前走芝・ダ', '性別'])]
@@ -87,12 +92,12 @@ cv = RepeatedKFold(n_splits=5, n_repeats=3, random_state=0)
 
 model = xgb.XGBClassifier()
 
-
 params = {'booster': ['gbtree'], 'n_estimators': [10, 30, 50], 'max_depth': [3, 5, 7],
           'learning_rate': [0.3, 0.5, 0.7], 'colsample_bytree': [0.3, 0.5, 0.7], 'random_state': [0],
           "objective": ["multi:softmax"], "num_class": [16]
           }
 
+# グリッドサーチでパラメータ探索
 gs = GridSearchCV(estimator=model, param_grid=params,
                   cv=cv, scoring='f1_micro')
 gs.fit(x_train, y_train)
@@ -101,6 +106,8 @@ print('best score: {:0.3f}'.format(gs.score(x_test, y_test)))
 print('best params: {}'.format(gs.best_params_))
 print('best val score:  {:0.3f}'.format(gs.best_score_))
 
+
+# グリッドサーチの結果に応じてパラメータ設定
 model = xgb.XGBClassifier(booster='gbtree', colsample_bytree=0.5, learning_rate=0.25,
                           max_depth=3, n_estimators=50, num_class=16,
                           objective='multi:softmax', random_state=0)
@@ -117,16 +124,17 @@ plt.xlabel('前走上がり3Fタイム')
 plt.ylabel('前走入線着順')
 
 """
-# Google Colaboratoryではインポートが必要
+# Google Colaboratoryではインストールが必要
 !pip install graphviz
 """
-
+# 決定木の可視化
 xgb.to_graphviz(model, num_trees=0)
 
+# モデルの保存
 file_path = '/content/drive/MyDrive/keiba/champions_cup.pkl'
-
 pickle.dump(model, open(file_path, 'wb'))
 
+# 実際の予想に用いるデータ（出馬表）
 racecards = pd.read_csv(
     '/content/drive/MyDrive/keiba/***.csv', encoding="Shift-JIS")
 racecards.head()
@@ -145,22 +153,25 @@ racecards = racecards.rename(columns={'替': '乗り替わり', '体重': '前�
                                       })
 racecards.head()
 
+# 前走馬体重がないデータについては該当レース時の馬体重とする
 racecards.loc[racecards['前走馬体重'] == 0,
               '前走馬体重'] = racecards.loc[racecards['前走馬体重'] == 0, '馬体重']
 
+# 前走上がり3Fタイムや前走通過順1が0の場合はNaNとする
 for element in ['前走上がり3Fタイム', '前走通過順1', '前走通過順2', '前走通過順3', '前走通過順4']:
     racecards.loc[racecards[element] == 0, element] = np.NaN
     racecards.loc[racecards[element] == "----", element] = np.NaN
 
-# 性別のone-hot
+# 性別のone-hot化
 one_hot_vector = pd.get_dummies(racecards[['性別']], drop_first=False)
 racecards = pd.concat([racecards, one_hot_vector], axis=1)
+# 牝馬いないため，手動でカラムを追加
+racecards['性別_牝'] = 0
 
-# 性別のone-hot
+
+# 前走が芝かダートかの情報のone-hot化
 one_hot_vector = pd.get_dummies(racecards[['前走芝・ダ']], drop_first=False)
 racecards = pd.concat([racecards, one_hot_vector], axis=1)
-
-# 乗り替わり
 
 
 def categorize(x):
@@ -170,6 +181,7 @@ def categorize(x):
         return 0
 
 
+# 乗り替わりの有無をintにする
 racecards['乗り替わり'] = racecards.apply(categorize, axis=1)
 
 display(racecards.head())
@@ -178,8 +190,6 @@ display(racecards.describe())
 racecards['前走上がり3Fタイム'] = racecards['前走上がり3Fタイム'].astype(float)
 display(racecards.info())
 
-# 牝馬いないので
-racecards['性別_牝'] = 0
 test_data = racecards.loc[:, ['年齢', '斤量', '馬番', '馬体重', '前走距離', '前走斤量', '前走入線着順', '前走通過順1',
                               '前走通過順2', '前走通過順3', '前走通過順4', '前走上がり3Fタイム', '前走馬体重',
                               '性別_セ', '性別_牝', '性別_牡', '前走芝・ダ_ダ', '前走芝・ダ_芝', '乗り替わり']]
