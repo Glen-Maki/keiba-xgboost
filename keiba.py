@@ -7,52 +7,62 @@ Original file is located at
     https://colab.research.google.com/drive/1zOymh2qR0fOF7XGqFv8q2e_ycac7nW4N
 """
 
+import pickle    # 保存
+import matplotlib.pyplot as plt
+from sklearn.metrics import classification_report
+from sklearn.model_selection import GridSearchCV
+import xgboost as xgb
+from sklearn.model_selection import RepeatedKFold
+from sklearn.model_selection import train_test_split
+import numpy as np
+import pandas as pd
 from google.colab import drive
 drive.mount('/content/drive')
 
-import pandas as pd
-import numpy as np
-from sklearn.model_selection import train_test_split
 
-df_all = pd.read_csv('/content/drive/MyDrive/eml/keiba/campionscup.csv', encoding="Shift-JIS")
+df_all = pd.read_csv(
+    '/content/drive/MyDrive/keiba/***.csv', encoding="Shift-JIS")
 df_all.head()
 
 print(list(df_all.columns.values))
 
-df = df_all[['性別', '年齢', '騎手名', '斤量','馬番','異常コード','馬体重',
-           '前走芝・ダ', '前走距離','前走騎手名', '前走斤量',
-           '前走入線着順', '前走異常コード','前走通過順1', '前走通過順2',
-            '前走通過順3', '前走通過順4','前走上がり3Fタイム', '前走馬体重','入線着順']]
+df = df_all[['性別', '年齢', '騎手名', '斤量', '馬番', '異常コード', '馬体重',
+             '前走芝・ダ', '前走距離', '前走騎手名', '前走斤量',
+             '前走入線着順', '前走異常コード', '前走通過順1', '前走通過順2',
+            '前走通過順3', '前走通過順4', '前走上がり3Fタイム', '前走馬体重', '入線着順']]
 
 display(df.head())
 display(df.info())
 display(df.describe())
 
-drop_index = df.index[(df['異常コード'] != 0) | (df['前走異常コード'] != 0 )]
+drop_index = df.index[(df['異常コード'] != 0) | (df['前走異常コード'] != 0)]
 # print(drop_index)
 df = df.drop(drop_index)
 
 display(df.describe())
 
-df.loc[df['前走馬体重'] == 0,'前走馬体重'] =df.loc[df['前走馬体重'] == 0,'馬体重']
+df.loc[df['前走馬体重'] == 0, '前走馬体重'] = df.loc[df['前走馬体重'] == 0, '馬体重']
 
-for element in ['前走上がり3Fタイム','前走通過順1', '前走通過順2','前走通過順3', '前走通過順4']:
-  df.loc[df[element] == 0,element] = np.NaN
+for element in ['前走上がり3Fタイム', '前走通過順1', '前走通過順2', '前走通過順3', '前走通過順4']:
+    df.loc[df[element] == 0, element] = np.NaN
 
 # 性別のone-hot
-one_hot_vector = pd.get_dummies(df[['性別']],drop_first=False)
+one_hot_vector = pd.get_dummies(df[['性別']], drop_first=False)
 df = pd.concat([df, one_hot_vector], axis=1)
 
 # 性別のone-hot
-one_hot_vector = pd.get_dummies(df[['前走芝・ダ']],drop_first=False)
+one_hot_vector = pd.get_dummies(df[['前走芝・ダ']], drop_first=False)
 df = pd.concat([df, one_hot_vector], axis=1)
 
 # 乗り替わり
+
+
 def categorize(x):
-  if x['騎手名'] == x['前走騎手名']:
-    return 0
-  else:
-    return 1
+    if x['騎手名'] == x['前走騎手名']:
+        return 0
+    else:
+        return 1
+
 
 df['乗り替わり'] = df.apply(categorize, axis=1)
 
@@ -61,99 +71,104 @@ display(df.describe())
 
 df = df.sample(frac=0.5, random_state=0).reset_index(drop=True)
 
-y_data = df.loc[:,['入線着順']]
-x_data = df.loc[:,~df.columns.isin(['入線着順','騎手名','前走騎手名','異常コード','前走異常コード','前走芝・ダ','性別'])]
+y_data = df.loc[:, ['入線着順']]
+x_data = df.loc[:, ~df.columns.isin(
+    ['入線着順', '騎手名', '前走騎手名', '異常コード', '前走異常コード', '前走芝・ダ', '性別'])]
 display(y_data.head())
 display(x_data.head())
 
-x_train, x_test, y_train, y_test = train_test_split(x_data, y_data, train_size = 0.8)
+x_train, x_test, y_train, y_test = train_test_split(
+    x_data, y_data, train_size=0.8)
 
 print(x_train)
 print(y_train)
 
-from sklearn.model_selection import RepeatedKFold
 cv = RepeatedKFold(n_splits=5, n_repeats=3, random_state=0)
 
-import xgboost as xgb
 model = xgb.XGBClassifier()
 
-from sklearn.model_selection import GridSearchCV
 
-params = {'booster': ['gbtree'], 'n_estimators': [10, 30, 50],'max_depth': [3,5,7], 
-  'learning_rate': [0.3, 0.5, 0.7], 'colsample_bytree': [0.3, 0.5, 0.7],'random_state': [0],
-  "objective":["multi:softmax"],"num_class": [16]
-}
+params = {'booster': ['gbtree'], 'n_estimators': [10, 30, 50], 'max_depth': [3, 5, 7],
+          'learning_rate': [0.3, 0.5, 0.7], 'colsample_bytree': [0.3, 0.5, 0.7], 'random_state': [0],
+          "objective": ["multi:softmax"], "num_class": [16]
+          }
 
-gs = GridSearchCV(estimator=model, param_grid=params, cv=cv, scoring = 'f1_micro')
+gs = GridSearchCV(estimator=model, param_grid=params,
+                  cv=cv, scoring='f1_micro')
 gs.fit(x_train, y_train)
 
 print('best score: {:0.3f}'.format(gs.score(x_test, y_test)))
 print('best params: {}'.format(gs.best_params_))
 print('best val score:  {:0.3f}'.format(gs.best_score_))
 
-model=xgb.XGBClassifier(booster= 'gbtree', colsample_bytree= 0.5, learning_rate= 0.25, 
-                        max_depth=  3, n_estimators= 50, num_class= 16, 
-                        objective='multi:softmax', random_state= 0)
+model = xgb.XGBClassifier(booster='gbtree', colsample_bytree=0.5, learning_rate=0.25,
+                          max_depth=3, n_estimators=50, num_class=16,
+                          objective='multi:softmax', random_state=0)
 
 model.fit(x_train, y_train)
 
 y_test_pred = model.predict(x_test)
 
-from sklearn.metrics import classification_report
 print(classification_report(y_test, y_test_pred))
 
-import matplotlib.pyplot as plt
 plt.figure(figsize=(8, 8))
 plt.scatter(x_test['前走上がり3Fタイム'], x_test['前走入線着順'], c=y_test_pred)
 plt.xlabel('前走上がり3Fタイム')
 plt.ylabel('前走入線着順')
 
+"""
+# Google Colaboratoryではインポートが必要
 !pip install graphviz
+"""
 
 xgb.to_graphviz(model, num_trees=0)
 
-import pickle    # 保存
-file_path = '/content/drive/MyDrive/eml/keiba/champions_cup.pkl'
+file_path = '/content/drive/MyDrive/keiba/champions_cup.pkl'
 
 pickle.dump(model, open(file_path, 'wb'))
 
-racecards = pd.read_csv('/content/drive/MyDrive/eml/keiba/test.csv', encoding="Shift-JIS")
+racecards = pd.read_csv(
+    '/content/drive/MyDrive/keiba/***.csv', encoding="Shift-JIS")
 racecards.head()
 
 print(list(racecards.columns.values))
 
-racecards = racecards[['性別', '年齢', '斤量','馬番','馬体重','芝・ダ',
-                   '距離','替', '斤量.1','着順','通過順1', '2', '3', 
-                   '4','上り3F', '体重','馬名S']] 
+racecards = racecards[['性別', '年齢', '斤量', '馬番', '馬体重', '芝・ダ',
+                       '距離', '替', '斤量.1', '着順', '通過順1', '2', '3',
+                       '4', '上り3F', '体重', '馬名S']]
 racecards.head()
 
 # カラム名を合わせる
-racecards = racecards.rename(columns={'替': '乗り替わり', '体重':'前走馬体重', '斤量.1':'前走斤量', '芝・ダ':'前走芝・ダ',
-                        '距離':'前走距離', '着順':'前走入線着順','上り3F':'前走上がり3Fタイム',
-                        '通過順1':'前走通過順1', '2':'前走通過順2', '3':'前走通過順3', '4':'前走通過順4'
-                        })
+racecards = racecards.rename(columns={'替': '乗り替わり', '体重': '前走馬体重', '斤量.1': '前走斤量', '芝・ダ': '前走芝・ダ',
+                                      '距離': '前走距離', '着順': '前走入線着順', '上り3F': '前走上がり3Fタイム',
+                                      '通過順1': '前走通過順1', '2': '前走通過順2', '3': '前走通過順3', '4': '前走通過順4'
+                                      })
 racecards.head()
 
-racecards.loc[racecards['前走馬体重'] == 0,'前走馬体重'] =racecards.loc[racecards['前走馬体重'] == 0,'馬体重']
+racecards.loc[racecards['前走馬体重'] == 0,
+              '前走馬体重'] = racecards.loc[racecards['前走馬体重'] == 0, '馬体重']
 
-for element in ['前走上がり3Fタイム','前走通過順1', '前走通過順2','前走通過順3', '前走通過順4']:
-  racecards.loc[racecards[element] == 0,element] = np.NaN
-  racecards.loc[racecards[element] == "----",element] = np.NaN
+for element in ['前走上がり3Fタイム', '前走通過順1', '前走通過順2', '前走通過順3', '前走通過順4']:
+    racecards.loc[racecards[element] == 0, element] = np.NaN
+    racecards.loc[racecards[element] == "----", element] = np.NaN
 
 # 性別のone-hot
-one_hot_vector = pd.get_dummies(racecards[['性別']],drop_first=False)
+one_hot_vector = pd.get_dummies(racecards[['性別']], drop_first=False)
 racecards = pd.concat([racecards, one_hot_vector], axis=1)
 
 # 性別のone-hot
-one_hot_vector = pd.get_dummies(racecards[['前走芝・ダ']],drop_first=False)
+one_hot_vector = pd.get_dummies(racecards[['前走芝・ダ']], drop_first=False)
 racecards = pd.concat([racecards, one_hot_vector], axis=1)
 
 # 乗り替わり
+
+
 def categorize(x):
-  if x['乗り替わり'] == "*":
-    return 1
-  else:
-    return 0
+    if x['乗り替わり'] == "*":
+        return 1
+    else:
+        return 0
+
 
 racecards['乗り替わり'] = racecards.apply(categorize, axis=1)
 
@@ -165,9 +180,9 @@ display(racecards.info())
 
 # 牝馬いないので
 racecards['性別_牝'] = 0
-test_data = racecards.loc[:,['年齢', '斤量', '馬番', '馬体重', '前走距離', '前走斤量', '前走入線着順', '前走通過順1',
-                           '前走通過順2', '前走通過順3', '前走通過順4', '前走上がり3Fタイム', '前走馬体重', 
-                           '性別_セ', '性別_牝', '性別_牡', '前走芝・ダ_ダ', '前走芝・ダ_芝', '乗り替わり']]
+test_data = racecards.loc[:, ['年齢', '斤量', '馬番', '馬体重', '前走距離', '前走斤量', '前走入線着順', '前走通過順1',
+                              '前走通過順2', '前走通過順3', '前走通過順4', '前走上がり3Fタイム', '前走馬体重',
+                              '性別_セ', '性別_牝', '性別_牡', '前走芝・ダ_ダ', '前走芝・ダ_芝', '乗り替わり']]
 display(test_data.head())
 
 display(test_data.info())
